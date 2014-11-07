@@ -107,7 +107,8 @@ class OdogModel(object):
         self.orientations = orientations
         self.UNODOG = UNODOG
 
-    def evaluate(self, image, return_detailed=False, pad_val=None):
+    def evaluate(self, image, return_detailed=False, pad_val=None, adapt=None,
+            adapt_saturation=.5, max_attenuation=.1, adapt_exp=1):
         """
         Apply the model to an input image, represented as a 2D numpy array.
         Optionally returns the responses of all individual filters, and the
@@ -128,6 +129,28 @@ class OdogModel(object):
                           Default is False.
         pad_val : scalar
                   allows explicit setting of the desired pad value
+        adapt : 2D numpy array (optional)
+                a stimulus that the model filters will be adapted to.
+                Adaptation will lead to reduced filter response to the actual
+                input image, proportional to the filter response to the
+                adapting stimulus. Should have the same shape as image. If no
+                adapting stimulus is passed, no adaptation occurs.
+        adapt_saturation : scalar in [0, 1] (optional)
+                           the proportion of the maximal response to the
+                           adapting stimulus that a filter must reach to be
+                           maximally adapted. Ignored if adapt == None.
+        max_attenuation : scalar in [0, 1] (optional)
+                          the factor that filter responses that reach
+                          adapt_saturation level will be multiplied with to
+                          simulate adaptation. Smaller values imply stronger
+                          adaptation. Ignored if adapt == None.
+        adapt_exp : number (optional)
+                    filters that do not reach adapt_saturation level will be
+                    adapted proportionally to the ratio between their response
+                    and the saturation level, taken to the power of adapt_exp.
+                    Thus, the adapt exponent determines the rate of falloff for
+                    incomplete adaptation. Higher exponents mean quicker
+                    falloff. Default is 1. Ignored if adapt == None.
 
         Returns
         -------
@@ -143,6 +166,21 @@ class OdogModel(object):
         weights : 1D numpy array (optional)
                   the normalization weights of the orientations.
         """
+
+        # compute response to adaptor if there is one
+        if adapt is not None:
+            assert adapt.shape == image.shape
+            [_, adapt_weights, _] = self.evaluate(adapt, True)
+            # normalize adaptation weights to max of 1 for all values above
+            # cutoff
+            adapt_weights = np.abs(adapt_weights)
+            adapt_weights /= adapt_weights.max()
+            adapt_weights[adapt_weights > adapt_saturation] = adapt_saturation
+            adapt_weights /= adapt_weights.max()
+            adapt_weights **= adapt_exp
+            adapt_weights = 1 - (1 - max_attenuation) * adapt_weights
+        else:
+            adapt_weights = 1
 
         # use padding to make the stimulus match the size of the filters.
         # if there is a constant border value, pad with that value, otherwise
@@ -170,6 +208,8 @@ class OdogModel(object):
             responses = responses[:, :,
                     pad_amount[0, 0] : self.img_size[0] -pad_amount[0, 1],
                     pad_amount[1, 0] : self.img_size[1] -pad_amount[1, 1]]
+        # apply adaptation to filter outputs
+        responses = responses * adapt_weights
         # compute the weighted sum over different spatial scales
         orientation_output = np.tensordot(responses, self.scale_weights, (1,0))
         # normalize filter response within each orientation with its RMS
