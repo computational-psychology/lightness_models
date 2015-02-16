@@ -173,10 +173,8 @@ class OdogModel(object):
             [_, adapt_weights, _] = self.evaluate(adapt, True)
             # normalize adaptation weights to max of 1 for all values above
             # cutoff
-            adapt_weights = np.abs(adapt_weights)
-            adapt_weights /= adapt_weights.max()
-            adapt_weights[adapt_weights > adapt_saturation] = adapt_saturation
-            adapt_weights /= adapt_weights.max()
+            adapt_weights = np.fmin(adapt_saturation, np.abs(adapt_weights))
+            adapt_weights /= adapt_saturation
             adapt_weights **= adapt_exp
             adapt_weights = 1 - (1 - max_attenuation) * adapt_weights
         else:
