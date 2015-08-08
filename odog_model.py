@@ -6,6 +6,7 @@ utils.py module of TUBvision/stimuli, so be sure to have it available."""
 
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.stats import norm
 
 from model_utils import degrees_to_pixels, pad_array
 
@@ -14,6 +15,7 @@ class OdogModel(object):
     Represents an oriented difference of gaussians model for lightness
     perception. The implementation follows publications by Blakeslee and
     McCourt. Default values are chosen to match these publications.
+    The adaptation implementation is described in Betz et al. (2015)
 
     Basic usage:
     >>> om = OdogModel()
@@ -63,6 +65,9 @@ class OdogModel(object):
     [3] Blakeslee, B., & McCourt, M. E. (2003). A multiscale spatial filtering
     account of brightness phenomena. In L. Harris & M. Jenkin (Eds.), Levels of
     perception (pp. 45–70). New York, New York, USA: Springer.
+    [4] Betz, T., Shapley, R., Wichmann, F.A., & Maertens, M. (2015) Testing
+    the role of luminance edges in White's illusion with contour adaptation.
+    Journal of Vision
     """
     def __init__(self,
                  img_size = (1024, 1024),
@@ -108,7 +113,7 @@ class OdogModel(object):
         self.UNODOG = UNODOG
 
     def evaluate(self, image, return_detailed=False, pad_val=None, adapt=None,
-            adapt_saturation=.5, max_attenuation=.1, adapt_exp=1):
+            max_attenuation=.5, adapt_mu=.08, adapt_sigma=.005):
         """
         Apply the model to an input image, represented as a 2D numpy array.
         Optionally returns the responses of all individual filters, and the
@@ -135,22 +140,18 @@ class OdogModel(object):
                 input image, proportional to the filter response to the
                 adapting stimulus. Should have the same shape as image. If no
                 adapting stimulus is passed, no adaptation occurs.
-        adapt_saturation : scalar in [0, 1] (optional)
-                           the proportion of the maximal response to the
-                           adapting stimulus that a filter must reach to be
-                           maximally adapted. Ignored if adapt == None.
         max_attenuation : scalar in [0, 1] (optional)
                           the factor that filter responses that reach
                           adapt_saturation level will be multiplied with to
                           simulate adaptation. Smaller values imply stronger
                           adaptation. Ignored if adapt == None.
-        adapt_exp : number (optional)
-                    filters that do not reach adapt_saturation level will be
-                    adapted proportionally to the ratio between their response
-                    and the saturation level, taken to the power of adapt_exp.
-                    Thus, the adapt exponent determines the rate of falloff for
-                    incomplete adaptation. Higher exponents mean quicker
-                    falloff. Default is 1. Ignored if adapt == None.
+        adapt_mu : number (optional)
+                   the value of the adaptor response for which the adaptation
+                   level reaches 50% of the maxmial attenuation.
+        adapt_sigma : number (optional)
+                      the standard deviation of the cummulative Gaussian
+                      relating the response to the adaptor to the adaptation
+                      strength.
 
         Returns
         -------
@@ -173,10 +174,8 @@ class OdogModel(object):
             [_, adapt_weights, _] = self.evaluate(adapt, True)
             # normalize adaptation weights to max of 1 for all values above
             # cutoff
-            adapt_weights = np.fmin(adapt_saturation, np.abs(adapt_weights))
-            adapt_weights /= adapt_saturation
-            adapt_weights **= adapt_exp
-            adapt_weights = 1 - (1 - max_attenuation) * adapt_weights
+            adapt_weights = 1 - (1 - max_attenuation) * norm.cdf(
+                    np.abs(adapt_weights), loc=adapt_mu, scale=adapt_sigma)
         else:
             adapt_weights = 1
 
